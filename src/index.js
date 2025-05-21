@@ -1275,39 +1275,53 @@ bot.on('message:text', async (ctx) => {
       return;
     }
     
-    // Обработка ввода номера телефона для заявки юриста
-    if (state.action === 'waiting_lawyer_application_phone') {
+// Обработка ввода номера телефона для заявки юриста
+if (state.action === 'waiting_lawyer_application_phone') {
+  userStates[userId] = { 
+    action: 'waiting_lawyer_application_message',
+    name: state.name,
+    telegramChannel: state.telegramChannel,
+    phone: text
+  };
+  
+  await ctx.reply('Отлично! Теперь напишите ваше обращение или пожелания:');
+  return;
+}
+
+// Обработка ввода обращения для заявки юриста
+if (state.action === 'waiting_lawyer_application_message') {
+  try {
+    // Уведомляем пользователя
+    await ctx.reply('✅ Ваша заявка успешно отправлена! Мы свяжемся с вами в ближайшее время.');
+    
+    // Отправляем уведомление в канал для заявок
+    const notificationChannel = process.env.LAWYER_APPLICATIONS_CHANNEL;
+    if (notificationChannel) {
       try {
-        // Уведомляем пользователя
-        await ctx.reply('✅ Ваша заявка успешно отправлена! Мы свяжемся с вами в ближайшее время.');
-        
-        // Отправляем уведомление в канал для заявок
-        const notificationChannel = process.env.LAWYER_APPLICATIONS_CHANNEL;
-        if (notificationChannel) {
-          try {
-            await bot.api.sendMessage(notificationChannel, 
-              `📩 Заявка от юриста!\n\n` +
-              `👨‍⚖️ ФИО: ${state.name}\n` +
-              `📱 Телефон: ${text}\n` +
-              `🔗 Telegram: ${state.telegramChannel || 'Не указан'}\n\n`
-            );
-          } catch (error) {
-            console.error('Не удалось отправить уведомление в канал:', error);
-          }
-        }
-        
-        // Очищаем состояние
-        delete userStates[userId];
-        
-        // Возвращаем в главное меню
-        await showMainMenu(ctx);
+        await bot.api.sendMessage(notificationChannel, 
+          `📩 Новая заявка от юриста!\n\n` +
+          `👨‍⚖️ ФИО: ${state.name}\n` +
+          `📱 Телефон: ${state.phone}\n` +
+          `🔗 Telegram: ${state.telegramChannel || 'Не указан'}\n\n` +
+          `📝 Обращение:\n${text}\n\n`
+        );
       } catch (error) {
-        console.error('Error processing lawyer application:', error);
-        await ctx.reply('❌ Произошла ошибка при отправке заявки. Попробуйте позже.');
+        console.error('Не удалось отправить уведомление в канал:', error);
       }
-      
-      return;
     }
+    
+    // Очищаем состояние
+    delete userStates[userId];
+    
+    // Возвращаем в главное меню
+    await showMainMenu(ctx);
+  } catch (error) {
+    console.error('Error processing lawyer application:', error);
+    await ctx.reply('❌ Произошла ошибка при отправке заявки. Попробуйте позже.');
+  }
+  
+  return;
+}
     
     // Обработка удаления юриста
     if (state.action === 'waiting_lawyer_delete') {
