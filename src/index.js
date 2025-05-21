@@ -217,7 +217,23 @@ bot.on('callback_query:data', async (ctx) => {
     // Обработка выбора категории
     if (data.startsWith('category:')) {
       const categoryId = data.split(':')[1];
-      await showRequestsForCategory(ctx, categoryId);
+      await showRequestsForCategory(ctx, categoryId, 1);
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    // Обработка пагинации категорий
+    if (data.startsWith('category_page:')) {
+      const parts = data.split(':');
+      const categoryId = parts[1];
+      const page = parseInt(parts[2]);
+      await showRequestsForCategory(ctx, categoryId, page);
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    // Обработка нажатия на номер страницы (ничего не делаем)
+    if (data === 'noop') {
       await ctx.answerCallbackQuery();
       return;
     }
@@ -823,8 +839,8 @@ async function showLawyerInfo(ctx, lawyerId) {
   }
 }
 
-// Функция для отображения запросов в категории
-async function showRequestsForCategory(ctx, categoryId) {
+// Функция для отображения запросов в категории с пагинацией
+async function showRequestsForCategory(ctx, categoryId, page = 1) {
   try {
     const userId = ctx.from.id.toString();
     userStates[userId] = { categoryId };
@@ -834,12 +850,48 @@ async function showRequestsForCategory(ctx, categoryId) {
       return ctx.reply('Категория не найдена');
     }
     
+    // Получаем все запросы для категории
     const requests = await Request.find({ category: categoryId });
+    
+    // Настройки пагинации
+    const itemsPerPage = 10; // Количество вопросов на странице
+    const totalPages = Math.ceil(requests.length / itemsPerPage);
+    
+    // Проверяем корректность номера страницы
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+    
+    // Получаем вопросы для текущей страницы
+    const startIndex = (page - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, requests.length);
+    const currentPageRequests = requests.slice(startIndex, endIndex);
     
     const keyboard = new InlineKeyboard();
     
-    for (const request of requests) {
+    // Добавляем вопросы текущей страницы
+    for (const request of currentPageRequests) {
       keyboard.row({ text: request.title, callback_data: `request:${request._id.toString()}` });
+    }
+    
+    // Добавляем кнопки навигации
+    const navigationRow = [];
+    
+    // Кнопка "Предыдущая страница"
+    if (page > 1) {
+      navigationRow.push({ text: '⬅️ Назад', callback_data: `category_page:${categoryId}:${page - 1}` });
+    }
+    
+    // Информация о текущей странице
+    navigationRow.push({ text: `${page}/${totalPages}`, callback_data: 'noop' });
+    
+    // Кнопка "Следующая страница"
+    if (page < totalPages) {
+      navigationRow.push({ text: 'Вперед ➡️', callback_data: `category_page:${categoryId}:${page + 1}` });
+    }
+    
+    // Добавляем строку навигации
+    if (navigationRow.length > 0) {
+      keyboard.row(...navigationRow);
     }
     
     if (isAdmin(ctx)) {
