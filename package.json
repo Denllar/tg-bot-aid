@@ -1,0 +1,19 @@
+{
+  "name": "tg-aid-bot",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "grammy": "^1.36.1",
+    "mongoose": "^8.15.0",
+    "nodemon": "^3.1.10"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon --watch src --ext js,json src/index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
