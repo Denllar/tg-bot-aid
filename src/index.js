@@ -98,6 +98,20 @@ bot.on('callback_query:data', async (ctx) => {
     const data = ctx.callbackQuery.data;
     const userId = ctx.from.id.toString();
     
+    // Обработка поиска вопросов
+    if (data.startsWith('search:')) {
+      const categoryId = data.split(':')[1];
+      
+      userStates[userId] = { 
+        action: 'waiting_search_query',
+        categoryId
+      };
+      
+      await ctx.reply('Введите ключевые слова для поиска вопросов в этой категории:');
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
     // Обработка добавления категории
     if (data === 'add_category') {
       if (!isAdmin(ctx)) {
@@ -112,15 +126,17 @@ bot.on('callback_query:data', async (ctx) => {
     }
     
     // Обработка добавления запроса
-    if (data === 'add_request') {
+    if (data === 'add_request' || data.startsWith('add_request:')) {
       if (!isAdmin(ctx)) {
         await ctx.answerCallbackQuery('Доступ запрещен');
         return;
       }
       
+      const categoryId = data.startsWith('add_request:') ? data.split(':')[1] : userStates[userId].categoryId;
+      
       userStates[userId] = { 
         action: 'waiting_request_title',
-        categoryId: userStates[userId].categoryId
+        categoryId: categoryId
       };
       await ctx.reply('Введите название нового вопроса:');
       await ctx.answerCallbackQuery();
@@ -217,7 +233,7 @@ bot.on('callback_query:data', async (ctx) => {
     // Обработка выбора категории
     if (data.startsWith('category:')) {
       const categoryId = data.split(':')[1];
-      await showRequestsForCategory(ctx, categoryId, 1);
+      await showRequestsForCategory(ctx, categoryId, 1, '');
       await ctx.answerCallbackQuery();
       return;
     }
@@ -227,7 +243,8 @@ bot.on('callback_query:data', async (ctx) => {
       const parts = data.split(':');
       const categoryId = parts[1];
       const page = parseInt(parts[2]);
-      await showRequestsForCategory(ctx, categoryId, page);
+      const searchQuery = parts.length > 3 ? parts[3] : '';
+      await showRequestsForCategory(ctx, categoryId, page, searchQuery);
       await ctx.answerCallbackQuery();
       return;
     }
@@ -839,8 +856,8 @@ async function showLawyerInfo(ctx, lawyerId) {
   }
 }
 
-// Функция для отображения запросов в категории с пагинацией
-async function showRequestsForCategory(ctx, categoryId, page = 1) {
+// Функция для отображения запросов в категории с пагинацией и поиском
+async function showRequestsForCategory(ctx, categoryId, page = 1, searchQuery = '') {
   try {
     const userId = ctx.from.id.toString();
     userStates[userId] = { categoryId };
@@ -850,8 +867,16 @@ async function showRequestsForCategory(ctx, categoryId, page = 1) {
       return ctx.reply('Категория не найдена');
     }
     
-    // Получаем все запросы для категории
-    const requests = await Request.find({ category: categoryId });
+    // Получаем запросы для категории
+    let requestsQuery = { category: categoryId };
+    
+    // Если есть поисковый запрос, добавляем фильтр по заголовку
+    if (searchQuery) {
+      requestsQuery.title = { $regex: searchQuery, $options: 'i' };
+    }
+    
+    // Получаем все запросы для категории с учетом поискового запроса
+    const requests = await Request.find(requestsQuery);
     
     // Настройки пагинации
     const itemsPerPage = 10; // Количество вопросов на странице
@@ -859,14 +884,18 @@ async function showRequestsForCategory(ctx, categoryId, page = 1) {
     
     // Проверяем корректность номера страницы
     if (page < 1) page = 1;
-    if (page > totalPages) page = totalPages;
+    if (page > totalPages && totalPages > 0) page = totalPages;
     
     // Получаем вопросы для текущей страницы
     const startIndex = (page - 1) * itemsPerPage;
     const endIndex = Math.min(startIndex + itemsPerPage, requests.length);
     const currentPageRequests = requests.slice(startIndex, endIndex);
     
+    // Создаем клавиатуру
     const keyboard = new InlineKeyboard();
+    
+    // Добавляем кнопку поиска
+    keyboard.row({ text: '🔍 Поиск', callback_data: `search:${categoryId}` });
     
     // Добавляем вопросы текущей страницы
     for (const request of currentPageRequests) {
@@ -878,15 +907,15 @@ async function showRequestsForCategory(ctx, categoryId, page = 1) {
     
     // Кнопка "Предыдущая страница"
     if (page > 1) {
-      navigationRow.push({ text: '⬅️ Назад', callback_data: `category_page:${categoryId}:${page - 1}` });
+      navigationRow.push({ text: '⬅️ Назад', callback_data: `category_page:${categoryId}:${page - 1}:${searchQuery}` });
     }
     
     // Информация о текущей странице
-    navigationRow.push({ text: `${page}/${totalPages}`, callback_data: 'noop' });
+    navigationRow.push({ text: `${page}/${totalPages || 1}`, callback_data: 'noop' });
     
     // Кнопка "Следующая страница"
     if (page < totalPages) {
-      navigationRow.push({ text: 'Вперед ➡️', callback_data: `category_page:${categoryId}:${page + 1}` });
+      navigationRow.push({ text: 'Вперед ➡️', callback_data: `category_page:${categoryId}:${page + 1}:${searchQuery}` });
     }
     
     // Добавляем строку навигации
@@ -895,7 +924,7 @@ async function showRequestsForCategory(ctx, categoryId, page = 1) {
     }
     
     if (isAdmin(ctx)) {
-      keyboard.row({ text: '➕ Добавить вопрос', callback_data: 'add_request' });
+      keyboard.row({ text: '➕ Добавить вопрос', callback_data: `add_request:${categoryId}` });
       
       // Добавляем кнопки редактирования и удаления категории для админов
       keyboard.row(
@@ -906,7 +935,22 @@ async function showRequestsForCategory(ctx, categoryId, page = 1) {
     
     keyboard.row({ text: '⬅️ Назад к категориям', callback_data: 'back_to_main' });
     
-    await ctx.reply(`Категория: ${category.name}\n\nВыберите вопрос:`, { reply_markup: keyboard });
+    // Формируем заголовок сообщения
+    let messageText = `Категория: ${category.name}`;
+    
+    // Если был поисковый запрос, добавляем информацию о нем
+    if (searchQuery) {
+      messageText += `\n\nРезультаты поиска по запросу: "${searchQuery}"`;
+      if (requests.length === 0) {
+        messageText += '\n\nНичего не найдено. Попробуйте другой запрос.';
+      } else {
+        messageText += `\nНайдено вопросов: ${requests.length}`;
+      }
+    }
+    
+    messageText += '\n\nВыберите вопрос:';
+    
+    await ctx.reply(messageText, { reply_markup: keyboard });
   } catch (error) {
     console.error('Error showing requests:', error);
     ctx.reply('Произошла ошибка при загрузке вопросов. Попробуйте позже.');
@@ -922,10 +966,36 @@ bot.on('message:text', async (ctx) => {
     // Если текст - это кнопка "В начало", то обработка уже произведена в bot.hears
     if (text === '🏠 В начало') return;
     
+    // Обработка поискового запроса
+    if (userStates[userId] && userStates[userId].action === 'waiting_search_query') {
+      const searchQuery = text.trim();
+      const categoryId = userStates[userId].categoryId;
+      
+      // Очищаем состояние
+      delete userStates[userId];
+      
+      // Показываем результаты поиска
+      await showRequestsForCategory(ctx, categoryId, 1, searchQuery);
+      return;
+    }
+    
     // Если нет состояния, игнорируем сообщение
     if (!userStates[userId]) return;
     
     const state = userStates[userId];
+    
+    // Обработка ввода поискового запроса
+    if (state.action === 'waiting_search_query') {
+      const categoryId = state.categoryId;
+      const searchQuery = text.trim();
+      
+      // Очищаем состояние
+      delete userStates[userId];
+      
+      // Показываем результаты поиска
+      await showRequestsForCategory(ctx, categoryId, 1, searchQuery);
+      return;
+    }
     
     // Обработка добавления категории
     if (state.action === 'waiting_category_name') {
