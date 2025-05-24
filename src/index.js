@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Category, Request, Lawyer, LawyerApplication } from './models.js';
+import { Category, Request, Lawyer, LawyerApplication, SupportApplication } from './models.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -77,6 +77,9 @@ async function showMainMenu(ctx) {
     
     // Добавляем кнопку "Для юристов"
     keyboard.row({ text: '👨‍⚖️ Для юристов', callback_data: 'for_lawyers' });
+    
+    // Добавляем кнопку "Связаться с поддержкой"
+    keyboard.row({ text: '✉️ Связаться с поддержкой', callback_data: 'contact_support' });
     
     // Если пользователь админ, добавляем кнопку для создания категории
     if (isAdmin(ctx)) {
@@ -200,6 +203,31 @@ bot.on('callback_query:data', async (ctx) => {
         reply_markup: keyboard
       });
       
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    // Обработка нажатия на кнопку "Связаться с поддержкой"
+    if (data === 'contact_support') {
+      const keyboard = new InlineKeyboard()
+        .row({ text: '📝 Оставить заявку', callback_data: 'submit_support_application' })
+        .row({ text: '⬅️ Назад', callback_data: 'back_to_main' });
+      
+      await ctx.reply('🔧 Связаться с поддержкой\nЕсли у вас возникли технические вопросы или проблемы с ботом — нажмите сюда. Наша команда оперативно поможет вам.', {
+        reply_markup: keyboard
+      });
+      
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    // Обработка нажатия на кнопку "Оставить заявку" в поддержку
+    if (data === 'submit_support_application') {
+      userStates[userId] = { 
+        action: 'waiting_support_application_name'
+      };
+      
+      await ctx.reply('Пожалуйста, введите ваше ФИО:');
       await ctx.answerCallbackQuery();
       return;
     }
@@ -1432,6 +1460,74 @@ if (state.action === 'waiting_lawyer_application_phone') {
     
   } catch (error) {
     console.error('Error processing lawyer application:', error);
+    await ctx.reply('❌ Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.');
+  }
+  return;
+}
+
+// Обработка заявки в поддержку - имя
+if (state.action === 'waiting_support_application_name') {
+  userStates[userId] = { 
+    action: 'waiting_support_application_channel',
+    name: text
+  };
+  
+  await ctx.reply('Спасибо! Теперь введите ссылку на ваш Telegram канал (если нет, введите "-"):');
+  return;
+}
+
+// Обработка ввода ссылки на канал для заявки в поддержку
+if (state.action === 'waiting_support_application_channel') {
+  userStates[userId] = { 
+    action: 'waiting_support_application_phone',
+    name: state.name,
+    telegramChannel: text === '-' ? '' : text
+  };
+  
+  await ctx.reply('Отлично! Теперь введите ваш номер телефона для связи:');
+  return;
+}
+
+// Обработка ввода номера телефона для заявки в поддержку
+if (state.action === 'waiting_support_application_phone') {
+  userStates[userId] = { 
+    action: 'waiting_support_application_question',
+    name: state.name,
+    telegramChannel: state.telegramChannel,
+    phone: text
+  };
+  
+  await ctx.reply('Отлично! Теперь опишите ваш вопрос:');
+  return;
+}
+
+// Обработка ввода вопроса для заявки в поддержку
+if (state.action === 'waiting_support_application_question') {
+  try {
+    // Уведомляем пользователя
+    await ctx.reply('✅ Ваша заявка успешно отправлена! Мы свяжемся с вами в ближайшее время.');
+    
+    // Отправляем уведомление в канал для заявок поддержки
+    const notificationChannel = process.env.SUPPORT_APPLICATIONS_CHANNEL;
+    if (notificationChannel) {
+      try {
+        await bot.api.sendMessage(notificationChannel, 
+          `📩 Новая заявка в поддержку!\n\n` +
+          `👤 ФИО: ${state.name}\n` +
+          `📱 Телефон: ${state.phone}\n` +
+          `🔗 Telegram: ${state.telegramChannel || 'Не указан'}\n` +
+          `❓ Вопрос: ${text}\n\n`
+        );
+      } catch (error) {
+        console.error('Error sending notification to channel:', error);
+      }
+    }
+      
+    // Очищаем состояние пользователя
+    delete userStates[userId];
+    
+  } catch (error) {
+    console.error('Error processing support application:', error);
     await ctx.reply('❌ Произошла ошибка при отправке заявки. Пожалуйста, попробуйте позже.');
   }
   return;

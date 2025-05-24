@@ -48,6 +48,16 @@ const lawyerApplicationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Схема для заявок в поддержку
+const supportApplicationSchema = new mongoose.Schema({
+  name: { type: String, required: true }, // ФИО пользователя
+  telegramChannel: { type: String }, // Ссылка на телеграм канал
+  phone: { type: String, required: true }, // Номер телефона
+  question: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+export const SupportApplication = mongoose.model('SupportApplication', supportApplicationSchema);
 export const LawyerApplication = mongoose.model('LawyerApplication', lawyerApplicationSchema);
 export const Category = mongoose.model('Category', categorySchema);
 export const Request = mongoose.model('Request', requestSchema);
