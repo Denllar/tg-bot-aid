@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard, Keyboard } from 'grammy';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import { Category, Request, Lawyer, LawyerApplication, SupportApplication } from './models.js';
+import { Category, Request, Lawyer, LawyerApplication, SupportApplication, UserQuestion } from './models.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -111,6 +111,27 @@ bot.on('callback_query:data', async (ctx) => {
       };
       
       await ctx.reply('Введите ключевые слова для поиска вопросов в этой категории:');
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    
+    // Обработка нажатия на кнопку "Задать свой вопрос"
+    if (data.startsWith('ask_question:')) {
+      const categoryId = data.split(':')[1];
+      const category = await Category.findById(categoryId);
+      
+      if (!category) {
+        await ctx.reply('Категория не найдена');
+        await ctx.answerCallbackQuery();
+        return;
+      }
+      
+      userStates[userId] = { 
+        action: 'waiting_user_question',
+        categoryId
+      };
+      
+      await ctx.reply('✍️ Напишите ваш вопрос в свободной форме. Мы подберём юриста и перешлём ваш запрос: \n\n🟡 Пример: \n«Мой работодатель не подписывает приказ об увольнении и не платит отпускные. Что делать?» \n\nПосле отправки ваш вопрос получит юрист по данному направлению и свяжется с вами в течении дня.');
       await ctx.answerCallbackQuery();
       return;
     }
@@ -922,6 +943,9 @@ async function showRequestsForCategory(ctx, categoryId, page = 1, searchQuery = 
     // Создаем клавиатуру
     const keyboard = new InlineKeyboard();
     
+    // Добавляем кнопку "Задать свой вопрос"
+    keyboard.row({ text: '❓ Задать свой вопрос', callback_data: `ask_question:${categoryId}` });
+    
     // Добавляем кнопку поиска
     keyboard.row({ text: '🔍 Поиск', callback_data: `search:${categoryId}` });
     
@@ -1004,6 +1028,57 @@ bot.on('message:text', async (ctx) => {
       
       // Показываем результаты поиска
       await showRequestsForCategory(ctx, categoryId, 1, searchQuery);
+      return;
+    }
+    
+    // Обработка пользовательского вопроса
+    if (userStates[userId] && userStates[userId].action === 'waiting_user_question') {
+      const question = text.trim();
+      const categoryId = userStates[userId].categoryId;
+      
+      try {
+        const category = await Category.findById(categoryId);
+        if (!category) {
+          await ctx.reply('Категория не найдена. Пожалуйста, начните заново.');
+          delete userStates[userId];
+          return;
+        }
+        
+        // // Сохраняем вопрос в базу данных
+        // const userQuestion = new UserQuestion({
+        //   userId: userId,
+        //   username: ctx.from.username || `${ctx.from.first_name} ${ctx.from.last_name || ''}`.trim(),
+        //   category: categoryId,
+        //   question: question
+        // });
+        
+        // await userQuestion.save();
+        
+        // Отправляем вопрос на канал
+        const channelId = process.env.ASK_APPLICATIONS_CHANNEL;
+        
+        // Формируем сообщение для канала
+        const channelMessage = `📝 <b>Новый вопрос</b>\n\n` +
+          `👤 <b>От:</b> ${ctx.from.username ? '@' + ctx.from.username : `${ctx.from.first_name} ${ctx.from.last_name || ''}`.trim()}\n` +
+          `📂 <b>Категория:</b> ${category.name}\n\n` +
+          `❓ <b>Вопрос:</b>\n${question}`;
+        
+        // Отправляем сообщение на канал
+        await bot.api.sendMessage(channelId, channelMessage, { parse_mode: 'HTML' });
+        
+        // Отправляем подтверждение пользователю
+        await ctx.reply('Ваш вопрос принят! \nМы подберём подходящего юриста и свяжемся в ближайшее время. Пока вы ждёте — ознакомьтесь с частыми проблемами на похожие темы👇');
+        
+        // Показываем пользователю вопросы из этой категории
+        await showRequestsForCategory(ctx, categoryId);
+        
+        // Очищаем состояние пользователя
+        delete userStates[userId];
+      } catch (error) {
+        console.error('Error processing user question:', error);
+        await ctx.reply('Произошла ошибка при обработке вашего вопроса. Пожалуйста, попробуйте позже.');
+      }
+      
       return;
     }
     

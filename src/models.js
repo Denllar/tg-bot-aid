@@ -57,8 +57,22 @@ const supportApplicationSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Схема для пользовательских вопросов
+const userQuestionSchema = new mongoose.Schema({
+  userId: { type: String, required: true }, // ID пользователя в Telegram
+  username: { type: String }, // Имя пользователя в Telegram
+  category: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'Category',
+    required: true
+  },
+  question: { type: String, required: true }, // Текст вопроса
+  createdAt: { type: Date, default: Date.now }
+});
+
 export const SupportApplication = mongoose.model('SupportApplication', supportApplicationSchema);
 export const LawyerApplication = mongoose.model('LawyerApplication', lawyerApplicationSchema);
 export const Category = mongoose.model('Category', categorySchema);
 export const Request = mongoose.model('Request', requestSchema);
 export const Lawyer = mongoose.model('Lawyer', lawyerSchema);
+export const UserQuestion = mongoose.model('UserQuestion', userQuestionSchema);
