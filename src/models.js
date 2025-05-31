@@ -70,6 +70,16 @@ const userQuestionSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
+// Схема для логирования действий пользователей
+const userActionLogSchema = new mongoose.Schema({
+  userId: { type: String, required: true }, // ID пользователя в Telegram
+  username: { type: String }, // Имя пользователя в Telegram
+  action: { type: String, required: true }, // Тип действия (например, 'button_click', 'command', 'message')
+  actionData: { type: mongoose.Schema.Types.Mixed }, // Дополнительные данные о действии
+  timestamp: { type: Date, default: Date.now } // Время действия
+});
+
+export const UserActionLog = mongoose.model('UserActionLog', userActionLogSchema);
 export const SupportApplication = mongoose.model('SupportApplication', supportApplicationSchema);
 export const LawyerApplication = mongoose.model('LawyerApplication', lawyerApplicationSchema);
 export const Category = mongoose.model('Category', categorySchema);
