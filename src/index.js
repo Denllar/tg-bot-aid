@@ -72,9 +72,12 @@ bot.command('stats', async (ctx) => {
   }
 
   try {
-    // Получаем статистику за последние 24 часа
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    // Получаем статистику за неделю и месяц
+    const now = new Date();
+    const oneWeekAgo = new Date(now);
+    oneWeekAgo.setDate(now.getDate() - 7);
+    const oneMonthAgo = new Date(now);
+    oneMonthAgo.setMonth(now.getMonth() - 1);
 
     // Считаем только пользователей с username (как в списке)
     const usersWithUsername = await UserActionLog.aggregate([
@@ -85,25 +88,69 @@ bot.command('stats', async (ctx) => {
     const totalUsers = usersWithUsername[0]?.count || 0;
 
     const totalActions = await UserActionLog.countDocuments();
-    const recentActions = await UserActionLog.countDocuments({ timestamp: { $gte: oneDayAgo } });
+    const weekActions = await UserActionLog.countDocuments({ timestamp: { $gte: oneWeekAgo } });
+    const monthActions = await UserActionLog.countDocuments({ timestamp: { $gte: oneMonthAgo } });
 
-    // Получаем топ-5 самых популярных действий
-    const popularActions = await UserActionLog.aggregate([
-      { $match: { timestamp: { $gte: oneDayAgo } } },
-      { $group: { _id: '$action', count: { $sum: 1 } } },
-      { $sort: { count: -1 } },
-      { $limit: 5 }
+    // Получаем все уникальные category: и request: кнопки за неделю
+    const allCategoryClicks = await UserActionLog.aggregate([
+      { $match: { timestamp: { $gte: oneWeekAgo }, action: 'button_click', 'actionData.button': { $regex: /^category:/ } } },
+      { $group: { _id: '$actionData.button', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
     ]);
+    const allRequestClicks = await UserActionLog.aggregate([
+      { $match: { timestamp: { $gte: oneWeekAgo }, action: 'button_click', 'actionData.button': { $regex: /^request:/ } } },
+      { $group: { _id: '$actionData.button', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Собираем id категорий и вопросов
+    const allCategoryIds = allCategoryClicks.map(btn => btn._id.split(':')[1]);
+    const allRequestIds = allRequestClicks.map(btn => btn._id.split(':')[1]);
+    const categories = allCategoryIds.length > 0 ? await Category.find({ _id: { $in: allCategoryIds } }) : [];
+    const categoryIdMapAll = {};
+    for (const cat of categories) {
+      categoryIdMapAll[cat._id.toString()] = cat.name;
+    }
+    const requests = allRequestIds.length > 0 ? await Request.find({ _id: { $in: allRequestIds } }).populate('category') : [];
+    const requestIdMap = {};
+    for (const req of requests) {
+      requestIdMap[req._id.toString()] = req;
+    }
 
     let statsMessage = `<b>📊 Статистика бота</b>\n\n`;
     statsMessage += `👥 Всего пользователей: ${totalUsers}\n`;
     statsMessage += `🔢 Всего действий: ${totalActions}\n`;
-    statsMessage += `📈 Действий за 24 часа: ${recentActions}\n\n`;
+    statsMessage += `📈 Действий за неделю: ${weekActions}\n`;
+    statsMessage += `📆 Действий за месяц: ${monthActions}\n\n`;
 
-    statsMessage += `🔝 Популярные действия за 24 часа:\n`;
-    popularActions.forEach((item, index) => {
-      statsMessage += `${index + 1}. ${item._id}: ${item.count} раз\n`;
-    });
+    statsMessage += `🔝 Популярные категории за неделю:\n`;
+    let idx = 1;
+    for (const btn of allCategoryClicks) {
+      const catId = btn._id.split(':')[1];
+      const catName = categoryIdMapAll[catId] || catId;
+      statsMessage += `${idx}. Категория: ${catName} — ${btn.count}\n`;
+      idx++;
+    }
+    if (allCategoryClicks.length === 0) {
+      statsMessage += 'Нет популярных категорий за неделю.\n';
+    }
+
+    statsMessage += `\n🔝 Популярные вопросы за неделю:\n`;
+    idx = 1;
+    for (const btn of allRequestClicks) {
+      const reqId = btn._id.split(':')[1];
+      const req = requestIdMap[reqId];
+      if (req) {
+        const catName = req.category && req.category.name ? req.category.name : req.category ? req.category.toString() : '';
+        statsMessage += `${idx}. Вопрос: ${req.title} (категория: ${catName}) — ${btn.count}\n`;
+      } else {
+        statsMessage += `${idx}. Вопрос: ${reqId} — ${btn.count}\n`;
+      }
+      idx++;
+    }
+    if (allRequestClicks.length === 0) {
+      statsMessage += 'Нет популярных вопросов за неделю.\n';
+    }
 
     // Добавляем кнопку "Показать пользователей"
     const keyboard = new InlineKeyboard().row({ text: 'Показать пользователей', callback_data: 'show_users:0' });
